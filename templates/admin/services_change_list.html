@@ -1,0 +1,229 @@
+{% extends "admin/change_list.html" %}
+{% load i18n static admin_list %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.min.css">
+  <style>
+    .summary-panel {
+      margin: 0 15px 15px;
+      padding: 15px;
+      background: var(--darkened-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      color: var(--body-fg);
+    }
+    .summary-controls {
+      display: flex;
+      margin-bottom: 15px;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    .summary-period {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .summary-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+    .stat-card {
+      padding: 15px;
+      background: var(--body-bg);
+      border-left: 4px solid var(--primary);
+      transition: all 0.3s ease;
+    }
+    .stat-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .stat-card h3 {
+      margin: 0 0 5px 0;
+      font-size: 13px;
+      color: var(--body-quiet-color);
+    }
+    .stat-value {
+      font-size: 18px;
+      font-weight: bold;
+    }
+    .datepicker-container {
+      display: none;
+      gap: 10px;
+      align-items: center;
+    }
+    .datepicker-container.active {
+      display: flex;
+    }
+    .datepicker-input {
+      width: 120px;
+    }
+    #table-view {
+      width: 100%;
+      margin-top: 15px;
+    }
+    .loading-indicator {
+      display: none;
+      margin-left: 10px;
+    }
+    .loading-indicator.active {
+      display: inline-block;
+    }
+    .btn-high {
+      background-color: var(--primary);
+      color: white;
+    }
+    .btn-high:hover {
+      background-color: var(--primary-dark);
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <div id="content-main">
+    <div class="summary-panel">
+      <div class="summary-controls">
+        <div>
+          <label for="summary-view-mode">{% trans "Modo de visualização" %}:</label>
+          <select id="summary-view-mode" class="form-control">
+            <option value="cards">{% trans "Cartões" %}</option>
+            <option value="table">{% trans "Tabela" %}</option>
+          </select>
+        </div>
+        
+        <div class="summary-period">
+          <label for="summary-period">{% trans "Período" %}:</label>
+          <select id="summary-period" class="form-control">
+            <option value="today">{% trans "Hoje" %}</option>
+            <option value="month" selected>{% trans "Este Mês" %}</option>
+            <option value="year">{% trans "Este Ano" %}</option>
+            <option value="all">{% trans "Todo Período" %}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="summary-stats" id="cards-view">
+        <div class="stat-card">
+          <h3>{% trans "Serviços" %}</h3>
+          <div class="stat-value" id="services-count">{{ total_services_month }}</div>
+        </div>
+        <div class="stat-card">
+          <h3>{% trans "Custo Total" %}</h3>
+          <div class="stat-value" id="cost-amount">R$ {{ total_cost_month|floatformat:2 }}</div>
+        </div>
+        <div class="stat-card">
+          <h3>{% trans "Total Pago" %}</h3>
+          <div class="stat-value" id="paid-amount">R$ {{ total_paid_month|floatformat:2 }}</div>
+        </div>
+        <div class="stat-card">
+          <h3>{% trans "Lucro" %}</h3>
+          <div class="stat-value" id="profit-amount">R$ {{ total_paid_month|floatformat:2 }}</div>
+        </div>
+      </div>
+
+      <table class="table table-striped" id="table-view" style="display: none;">
+        <thead>
+          <tr>
+            <th>{% trans "Período" %}</th>
+            <th>{% trans "Serviços" %}</th>
+            <th>{% trans "Custo Total" %}</th>
+            <th>{% trans "Total Pago" %}</th>
+            <th>{% trans "Lucro" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{% trans "Hoje" %}</td>
+            <td>{{ total_services_today }}</td>
+            <td>R$ {{ total_cost_today|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_today|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_today|floatformat:2 }}</td>
+          </tr>
+          <tr>
+            <td>{% trans "Este Mês" %}</td>
+            <td>{{ total_services_month }}</td>
+            <td>R$ {{ total_cost_month|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_month|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_month|floatformat:2 }}</td>
+          </tr>
+          <tr>
+            <td>{% trans "Este Ano" %}</td>
+            <td>{{ total_services_year }}</td>
+            <td>R$ {{ total_cost_year|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_year|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_year|floatformat:2 }}</td>
+          </tr>
+          <tr>
+            <td>{% trans "Todo Período" %}</td>
+            <td>{{ total_services_all }}</td>
+            <td>R$ {{ total_cost_all|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_all|floatformat:2 }}</td>
+            <td>R$ {{ total_paid_all|floatformat:2 }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    {{ block.super }}
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Elementos do DOM
+      const viewModeSelect = document.getElementById('summary-view-mode');
+      const cardsView = document.getElementById('cards-view');
+      const tableView = document.getElementById('table-view');
+      
+      // Dados do contexto (passados pelo Django)
+      const statsData = {
+        today: {
+          services: {{ total_services_today }},
+          cost: {{ total_cost_today|default:"0" }},
+          paid: {{ total_paid_today|default:"0" }}
+        },
+        month: {
+          services: {{ total_services_month }},
+          cost: {{ total_cost_month|default:"0" }},
+          paid: {{ total_paid_month|default:"0" }}
+        },
+        year: {
+          services: {{ total_services_year }},
+          cost: {{ total_cost_year|default:"0" }},
+          paid: {{ total_paid_year|default:"0" }}
+        },
+        all: {
+          services: {{ total_services_all }},
+          cost: {{ total_cost_all|default:"0" }},
+          paid: {{ total_paid_all|default:"0" }}
+        }
+      };
+
+      // Alternar entre visualizações
+      viewModeSelect.addEventListener('change', function() {
+        if (this.value === 'cards') {
+          cardsView.style.display = 'grid';
+          tableView.style.display = 'none';
+        } else {
+          cardsView.style.display = 'none';
+          tableView.style.display = 'table';
+        }
+      });
+
+      // Atualiza os cards quando o período muda
+      document.getElementById('summary-period').addEventListener('change', function() {
+        const period = this.value;
+        const data = statsData[period];
+        
+        document.getElementById('services-count').textContent = data.services;
+        document.getElementById('cost-amount').textContent = 'R$ ' + data.cost.toFixed(2);
+        document.getElementById('paid-amount').textContent = 'R$ ' + data.paid.toFixed(2);
+        document.getElementById('profit-amount').textContent = 'R$ ' + (data.paid - data.cost).toFixed(2);
+      });
+    });
+  </script>
+{% endblock %}
