@@ -1,4 +1,3 @@
-from itertools import count
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.timezone import now
@@ -8,10 +7,8 @@ from .models import (
     Client, PhoneNumber, EmailAddress, Car,
     ServiceCategory, Service, Payment
 )
-from datetime import date, timezone
 
-# ========== INLINES ==========
-
+# Inlines
 class PhoneNumberInline(admin.TabularInline):
     model = PhoneNumber
     extra = 1
@@ -26,27 +23,27 @@ class PaymentInline(admin.TabularInline):
     readonly_fields = ('created_at',)
     fields = ('method', 'amount', 'created_at')
 
-# ========== CLIENTES ==========
 
+# Cliente
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
     search_fields = ('name', 'cpf_cnpj')
     list_display = ('name', 'cpf_cnpj', 'get_phones', 'get_emails')
     inlines = [PhoneNumberInline, EmailAddressInline]
 
+    @admin.display(description='Telefones')
     def get_phones(self, obj):
         return ', '.join([
             f"{p.number}{' (WhatsApp)' if p.is_whatsapp else ''}"
             for p in obj.phones.all()
         ])
-    get_phones.short_description = 'Telefones'
 
+    @admin.display(description='E-mails')
     def get_emails(self, obj):
         return ', '.join([e.email for e in obj.emails.all()])
-    get_emails.short_description = 'E-mails'
 
-# ========== CARROS ==========
 
+# Carro
 @admin.register(Car)
 class CarAdmin(admin.ModelAdmin):
     list_display = (
@@ -57,19 +54,16 @@ class CarAdmin(admin.ModelAdmin):
     list_filter = ('brand', 'model', 'generation', 'fuel_type')
     autocomplete_fields = ('client', 'brand', 'model', 'generation', 'category')
 
+    @admin.display(description='Cliente', ordering='client__name')
     def get_client(self, obj):
         return obj.client.name
-    get_client.short_description = 'Cliente'
 
+    @admin.display(description='Qtd. de Serviços')
     def get_service_count(self, obj):
         return f"{obj.services.count()} serviços"
-    get_service_count.short_description = 'Qtd. de Serviços'
 
-    Car._meta.verbose_name = "Carro"
-    Car._meta.verbose_name_plural = "Carros"
 
-# ========== SERVIÇOS ==========
-
+# Serviço
 @admin.register(Service)
 class ServiceAdmin(admin.ModelAdmin):
     list_display = (
@@ -84,7 +78,7 @@ class ServiceAdmin(admin.ModelAdmin):
     change_list_template = 'admin/services_change_list.html'
 
     readonly_fields = (
-        'entry_date', 'total_cost', 'total_paid', 'pending_amount', 
+        'entry_date', 'total_cost', 'total_paid', 'pending_amount',
         'receipt_preview', 'service_duration', 'total_duration'
     )
 
@@ -120,22 +114,19 @@ class ServiceAdmin(admin.ModelAdmin):
         }),
     )
 
-    # Métodos auxiliares para exibição na lista
+    @admin.display(description='Cliente', ordering='car__client__name')
     def get_client_name(self, obj):
         return obj.car.client.name
-    get_client_name.short_description = 'Cliente'
-    get_client_name.admin_order_field = 'car__client__name'
 
+    @admin.display(description='Placa', ordering='car__license_plate')
     def get_license_plate(self, obj):
         return obj.car.license_plate
-    get_license_plate.short_description = 'Placa'
-    get_license_plate.admin_order_field = 'car__license_plate'
 
+    @admin.display(description='Modelo', ordering='car__model__name')
     def get_model_name(self, obj):
         return f"{obj.car.brand} {obj.car.model}"
-    get_model_name.short_description = 'Modelo'
-    get_model_name.admin_order_field = 'car__model__name'
 
+    @admin.display(description="Visualização do Recibo")
     def receipt_preview(self, obj):
         if obj.receipt_image:
             return format_html(
@@ -143,50 +134,41 @@ class ServiceAdmin(admin.ModelAdmin):
                 obj.receipt_image.url
             )
         return "Sem imagem"
-    receipt_preview.short_description = "Visualização do Recibo"
 
+    @admin.display(description="Duração do Serviço")
     def service_duration(self, obj):
         if obj.start_date and obj.completion_date:
             duration = obj.completion_date - obj.start_date
-            days = duration.days
-            hours, remainder = divmod(duration.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            return f"{days}d {hours}h {minutes}m"
+            return self._format_duration(duration)
         return "-"
-    service_duration.short_description = "Duração do Serviço"
 
+    @admin.display(description="Tempo Total")
     def total_duration(self, obj):
         if obj.entry_date and obj.delivery_date:
             duration = obj.delivery_date - obj.entry_date
-            days = duration.days
-            hours, remainder = divmod(duration.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            return f"{days}d {hours}h {minutes}m"
+            return self._format_duration(duration)
         return "-"
-    total_duration.short_description = "Tempo Total"
+
+    def _format_duration(self, duration):
+        days = duration.days
+        hours, remainder = divmod(duration.seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        return f"{days}d {hours}h {minutes}m"
 
     def save_model(self, request, obj, form, change):
-        # Atualiza automaticamente as datas baseadas no status
-        if not change:  # Novo registro
-            obj.entry_date = timezone.now()
-        
         if 'status' in form.changed_data:
-            now = timezone.now()
+            current_time = now()
             if obj.status == Service.Status.IN_PROGRESS and not obj.start_date:
-                obj.start_date = now
+                obj.start_date = current_time
             elif obj.status == Service.Status.READY and not obj.completion_date:
-                obj.completion_date = now
+                obj.completion_date = current_time
             elif obj.status == Service.Status.DELIVERED and not obj.delivery_date:
-                obj.delivery_date = now
-        
+                obj.delivery_date = current_time
         super().save_model(request, obj, form, change)
 
     def changelist_view(self, request, extra_context=None):
-        today = date.today()
-        qs = self.get_queryset(request)
-        
         def get_stats(qs_filter):
-            filtered_qs = qs.filter(**qs_filter)
+            filtered_qs = self.get_queryset(request).filter(**qs_filter)
             labor = filtered_qs.aggregate(Sum('labor_cost'))['labor_cost__sum'] or 0
             parts = filtered_qs.aggregate(Sum('parts_cost'))['parts_cost__sum'] or 0
             total_cost = labor + parts
@@ -198,6 +180,7 @@ class ServiceAdmin(admin.ModelAdmin):
                 'pending': total_cost - total_paid
             }
 
+        today = now().date()
         stats = {
             'today': get_stats({'entry_date__date': today}),
             'month': get_stats({'entry_date__month': today.month, 'entry_date__year': today.year}),
@@ -208,17 +191,21 @@ class ServiceAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         extra_context.update({
             'stats': stats,
-            'status_counts': dict(qs.values_list('status').annotate(count=Count('id')))
+            'status_counts': dict(
+                self.get_queryset(request)
+                    .values_list('status')
+                    .annotate(count=Count('id'))
+            )
         })
 
         return super().changelist_view(request, extra_context=extra_context)
 
-# ========== OUTROS MODELOS ==========
 
+# Demais modelos
 @admin.register(Brand)
 class BrandAdmin(admin.ModelAdmin):
-    list_display = ('name',)
     search_fields = ('name',)
+
 
 @admin.register(CarModel)
 class CarModelAdmin(admin.ModelAdmin):
@@ -226,18 +213,25 @@ class CarModelAdmin(admin.ModelAdmin):
     list_filter = ('brand',)
     search_fields = ('name',)
 
+
 @admin.register(Generation)
 class GenerationAdmin(admin.ModelAdmin):
     list_display = ('car_model', 'number')
     list_filter = ('car_model__brand',)
     search_fields = ('car_model__name',)
 
+
 @admin.register(CarCategory)
 class CarCategoryAdmin(admin.ModelAdmin):
-    list_display = ('name',)
     search_fields = ('name',)
+
 
 @admin.register(ServiceCategory)
 class ServiceCategoryAdmin(admin.ModelAdmin):
-    list_display = ('name',)
     search_fields = ('name',)
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = ('service', 'method', 'amount', 'created_at')
+    readonly_fields = ('created_at',)

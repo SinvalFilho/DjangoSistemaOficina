@@ -37,8 +37,8 @@ class ClientFilter(django_filters.FilterSet):
 
 class ServiceFilter(django_filters.FilterSet):
     category = django_filters.CharFilter(field_name='category__name', lookup_expr='iexact')
-    service_date = django_filters.DateFromToRangeFilter()
+    entry_date = django_filters.DateFromToRangeFilter()
 
     class Meta:
         model = Service
-        fields = ['category', 'service_date']
+        fields = ['category', 'entry_date']

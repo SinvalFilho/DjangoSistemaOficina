@@ -80,6 +80,18 @@
     .btn-high:hover {
       background-color: var(--primary-dark);
     }
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+    .status-received { background-color: #6c757d; }
+    .status-budgeted { background-color: #17a2b8; }
+    .status-in_progress { background-color: #ffc107; }
+    .status-ready { background-color: #28a745; }
+    .status-delivered { background-color: #343a40; }
   </style>
 {% endblock %}
 
@@ -121,7 +133,7 @@
         </div>
         <div class="stat-card">
           <h3>{% trans "Lucro" %}</h3>
-          <div class="stat-value" id="profit-amount">R$ {{ total_paid_month|floatformat:2 }}</div>
+          <div class="stat-value" id="profit-amount">R$ {{ profit_month|floatformat:2 }}</div>
         </div>
       </div>
 
@@ -141,28 +153,28 @@
             <td>{{ total_services_today }}</td>
             <td>R$ {{ total_cost_today|floatformat:2 }}</td>
             <td>R$ {{ total_paid_today|floatformat:2 }}</td>
-            <td>R$ {{ total_paid_today|floatformat:2 }}</td>
+            <td>R$ {{ profit_today|floatformat:2 }}</td>
           </tr>
           <tr>
             <td>{% trans "Este Mês" %}</td>
             <td>{{ total_services_month }}</td>
             <td>R$ {{ total_cost_month|floatformat:2 }}</td>
             <td>R$ {{ total_paid_month|floatformat:2 }}</td>
-            <td>R$ {{ total_paid_month|floatformat:2 }}</td>
+            <td>R$ {{ profit_month|floatformat:2 }}</td>
           </tr>
           <tr>
             <td>{% trans "Este Ano" %}</td>
             <td>{{ total_services_year }}</td>
             <td>R$ {{ total_cost_year|floatformat:2 }}</td>
             <td>R$ {{ total_paid_year|floatformat:2 }}</td>
-            <td>R$ {{ total_paid_year|floatformat:2 }}</td>
+            <td>R$ {{ profit_year|floatformat:2 }}</td>
           </tr>
           <tr>
             <td>{% trans "Todo Período" %}</td>
             <td>{{ total_services_all }}</td>
             <td>R$ {{ total_cost_all|floatformat:2 }}</td>
             <td>R$ {{ total_paid_all|floatformat:2 }}</td>
-            <td>R$ {{ total_paid_all|floatformat:2 }}</td>
+            <td>R$ {{ profit_all|floatformat:2 }}</td>
           </tr>
         </tbody>
       </table>
@@ -184,22 +196,26 @@
         today: {
           services: {{ total_services_today }},
           cost: {{ total_cost_today|default:"0" }},
-          paid: {{ total_paid_today|default:"0" }}
+          paid: {{ total_paid_today|default:"0" }},
+          profit: {{ profit_today|default:"0" }}
         },
         month: {
           services: {{ total_services_month }},
           cost: {{ total_cost_month|default:"0" }},
-          paid: {{ total_paid_month|default:"0" }}
+          paid: {{ total_paid_month|default:"0" }},
+          profit: {{ profit_month|default:"0" }}
         },
         year: {
           services: {{ total_services_year }},
           cost: {{ total_cost_year|default:"0" }},
-          paid: {{ total_paid_year|default:"0" }}
+          paid: {{ total_paid_year|default:"0" }},
+          profit: {{ profit_year|default:"0" }}
         },
         all: {
           services: {{ total_services_all }},
           cost: {{ total_cost_all|default:"0" }},
-          paid: {{ total_paid_all|default:"0" }}
+          paid: {{ total_paid_all|default:"0" }},
+          profit: {{ profit_all|default:"0" }}
         }
       };
 
@@ -220,9 +236,9 @@
         const data = statsData[period];
         
         document.getElementById('services-count').textContent = data.services;
-        document.getElementById('cost-amount').textContent = 'R$ ' + data.cost.toFixed(2);
-        document.getElementById('paid-amount').textContent = 'R$ ' + data.paid.toFixed(2);
-        document.getElementById('profit-amount').textContent = 'R$ ' + (data.paid - data.cost).toFixed(2);
+        document.getElementById('cost-amount').textContent = 'R$ ' + parseFloat(data.cost).toFixed(2);
+        document.getElementById('paid-amount').textContent = 'R$ ' + parseFloat(data.paid).toFixed(2);
+        document.getElementById('profit-amount').textContent = 'R$ ' + parseFloat(data.profit).toFixed(2);
       });
     });
   </script>

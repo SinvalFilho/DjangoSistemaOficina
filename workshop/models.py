@@ -1,33 +1,57 @@
-from datetime import date, timezone
-from django.db import models
+# workshop/models.py
+from datetime import date
+import uuid
+from django.db import models, transaction
+from django.utils import timezone
 from django.core.validators import MinValueValidator, RegexValidator
 from django.forms import ValidationError
 from django.utils.text import capfirst
 from django.utils.translation import gettext_lazy as _
-from simple_history.models import HistoricalRecords 
-import uuid
+from simple_history.models import HistoricalRecords
 
-# Validadores
+# Validators
 cpf_cnpj_validator = RegexValidator(
     regex=r"^(?:\d{11}|\d{14})$",
     message=_('CPF/CNPJ inválido')
 )
-
 phone_validator = RegexValidator(
     regex=r'^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$',
     message=_('Telefone inválido')
 )
-
 plate_validator = RegexValidator(
     regex=r'^[A-Z]{3}-?[0-9]{4}$|^[A-Z]{3}[0-9][A-Z][0-9]{2}$',
     message=_('Placa inválida')
 )
 
 def generate_token():
-    return uuid.uuid4().hex[:6].upper()
+    return uuid.uuid4().hex[:8].upper()
 
-class Brand(models.Model):
-    name = models.CharField(max_length=50, unique=True, verbose_name=_("Nome"))
+# Custom QuerySet and Manager
+class ServiceQuerySet(models.QuerySet):
+    def stats(self, **filters):
+        qs = self.filter(**filters)
+        labor = qs.aggregate(total=models.Sum('labor_cost'))['total'] or 0
+        parts = qs.aggregate(total=models.Sum('parts_cost'))['total'] or 0
+        paid = qs.aggregate(paid=models.Sum('payments__amount'))['paid'] or 0
+        return {
+            'count': qs.count(),
+            'total_cost': labor + parts,
+            'total_paid': paid,
+            'pending_amount': max((labor + parts) - paid, 0)
+        }
+
+class ServiceManager(models.Manager):
+    def get_queryset(self):
+        return ServiceQuerySet(self.model, using=self._db)
+
+# Utility mixin for cleaning names
+class NameCleanMixin:
+    def clean_name(self):
+        self.name = capfirst(self.name.strip())
+
+# Models
+class Brand(NameCleanMixin, models.Model):
+    name = models.CharField(max_length=50, unique=True, verbose_name=_('Nome'))
 
     class Meta:
         ordering = ['name']
@@ -35,15 +59,15 @@ class Brand(models.Model):
         verbose_name_plural = _('Marcas')
 
     def save(self, *args, **kwargs):
-        self.name = capfirst(self.name.strip())
+        self.clean_name()
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
 
-class CarModel(models.Model):
-    brand = models.ForeignKey(Brand, on_delete=models.CASCADE, related_name='models', verbose_name=_("Marca"))
-    name = models.CharField(max_length=50, verbose_name=_("Nome do modelo"))
+class CarModel(NameCleanMixin, models.Model):
+    brand = models.ForeignKey(Brand, on_delete=models.CASCADE, related_name='models', verbose_name=_('Marca'))
+    name = models.CharField(max_length=50, verbose_name=_('Nome do modelo'))
 
     class Meta:
         unique_together = ('brand', 'name')
@@ -52,15 +76,15 @@ class CarModel(models.Model):
         verbose_name_plural = _('Modelos de Carros')
 
     def save(self, *args, **kwargs):
-        self.name = capfirst(self.name.strip())
+        self.clean_name()
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.brand} {self.name}"
 
 class Generation(models.Model):
-    car_model = models.ForeignKey(CarModel, on_delete=models.CASCADE, related_name='generations', verbose_name=_("Modelo"))
-    number = models.PositiveIntegerField(validators=[MinValueValidator(1)], verbose_name=_("Número da geração"))
+    car_model = models.ForeignKey(CarModel, on_delete=models.CASCADE, related_name='generations', verbose_name=_('Modelo'))
+    number = models.PositiveIntegerField(validators=[MinValueValidator(1)], verbose_name=_('Número da geração'))
 
     class Meta:
         unique_together = ('car_model', 'number')
@@ -75,8 +99,8 @@ class Generation(models.Model):
     def __str__(self):
         return f"Geração {self.number}"
 
-class CarCategory(models.Model):
-    name = models.CharField(max_length=50, unique=True, verbose_name=_("Categoria"))
+class CarCategory(NameCleanMixin, models.Model):
+    name = models.CharField(max_length=50, unique=True, verbose_name=_('Categoria'))
 
     class Meta:
         ordering = ['name']
@@ -84,17 +108,17 @@ class CarCategory(models.Model):
         verbose_name_plural = _('Categorias de Carros')
 
     def save(self, *args, **kwargs):
-        self.name = capfirst(self.name.strip())
+        self.clean_name()
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
 
 class Client(models.Model):
-    name = models.CharField(max_length=100, verbose_name=_("Nome"))
-    cpf_cnpj = models.CharField(max_length=14, blank=True, null=True, validators=[cpf_cnpj_validator], verbose_name=_("CPF/CNPJ"))
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Criado em"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Atualizado em"))
+    name = models.CharField(max_length=100, verbose_name=_('Nome'))
+    cpf_cnpj = models.CharField(max_length=14, blank=True, null=True, validators=[cpf_cnpj_validator], verbose_name=_('CPF/CNPJ'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Criado em'))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_('Atualizado em'))
 
     class Meta:
         ordering = ['name']
@@ -102,7 +126,7 @@ class Client(models.Model):
         verbose_name_plural = _('Clientes')
 
     def save(self, *args, **kwargs):
-        self.name = self.name.strip()
+        self.name = ' '.join(word.capitalize() for word in self.name.strip().split())
         if self.cpf_cnpj:
             self.cpf_cnpj = self.cpf_cnpj.strip()
         super().save(*args, **kwargs)
@@ -111,9 +135,9 @@ class Client(models.Model):
         return self.name
 
 class PhoneNumber(models.Model):
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='phones', verbose_name=_("Cliente"))
-    number = models.CharField(max_length=20, validators=[phone_validator], verbose_name=_("Número de telefone"))
-    is_whatsapp = models.BooleanField(default=False, verbose_name=_("É WhatsApp?"))
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='phones', verbose_name=_('Cliente'))
+    number = models.CharField(max_length=20, validators=[phone_validator], verbose_name=_('Número de telefone'))
+    is_whatsapp = models.BooleanField(default=False, verbose_name=_('É WhatsApp?'))
 
     class Meta:
         verbose_name = _('Telefone')
@@ -127,8 +151,8 @@ class PhoneNumber(models.Model):
         return f"{self.number}{' (WhatsApp)' if self.is_whatsapp else ''}"
 
 class EmailAddress(models.Model):
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='emails', verbose_name=_("Cliente"))
-    email = models.EmailField(verbose_name=_("E-mail"))
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='emails', verbose_name=_('Cliente'))
+    email = models.EmailField(verbose_name=_('E-mail'))
 
     class Meta:
         verbose_name = _('E-mail')
@@ -149,14 +173,14 @@ class Car(models.Model):
         DIESEL = 'diesel', _('Diesel')
         HIBRIDO = 'hybrid', _('Híbrido')
 
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='cars', verbose_name=_("Cliente"))
-    license_plate = models.CharField(max_length=10, unique=True, validators=[plate_validator], verbose_name=_("Placa"))
-    brand = models.ForeignKey(Brand, on_delete=models.PROTECT, verbose_name=_("Marca"))
-    model = models.ForeignKey(CarModel, on_delete=models.PROTECT, verbose_name=_("Modelo"))
-    generation = models.ForeignKey(Generation, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Geração"))
-    year = models.PositiveIntegerField(validators=[MinValueValidator(1886)], verbose_name=_("Ano"))
-    category = models.ForeignKey(CarCategory, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Categoria"))
-    fuel_type = models.CharField(max_length=20, choices=FuelType.choices, blank=True, null=True, verbose_name=_("Combustível"))
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='cars', verbose_name=_('Cliente'))
+    license_plate = models.CharField(max_length=10, unique=True, validators=[plate_validator], verbose_name=_('Placa'))
+    brand = models.ForeignKey(Brand, on_delete=models.PROTECT, verbose_name=_('Marca'))
+    model = models.ForeignKey(CarModel, on_delete=models.PROTECT, verbose_name=_('Modelo'))
+    generation = models.ForeignKey(Generation, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_('Geração'))
+    year = models.PositiveIntegerField(validators=[MinValueValidator(1886)], verbose_name=_('Ano'))
+    category = models.ForeignKey(CarCategory, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_('Categoria'))
+    fuel_type = models.CharField(max_length=20, choices=FuelType.choices, blank=True, null=True, verbose_name=_('Combustível'))
 
     class Meta:
         ordering = ['client', 'license_plate']
@@ -164,14 +188,22 @@ class Car(models.Model):
         verbose_name_plural = _('Carros')
 
     def save(self, *args, **kwargs):
-        self.license_plate = self.license_plate.strip().upper()
+        plate = self.license_plate.strip().replace('-', '').upper()
+        
+        if len(plate) == 7 and plate[:3].isalpha() and plate[3:].isdigit():
+            self.license_plate = f"{plate[:3]}-{plate[3:]}"
+        elif len(plate) == 7 and plate[:3].isalpha() and plate[3].isdigit() and plate[4].isalpha() and plate[5:].isdigit():
+            self.license_plate = f"{plate[:3]}{plate[3]}{plate[4]}{plate[5:]}"
+        else:
+            self.license_plate = plate
+        
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.license_plate} - {self.brand} {self.model}"
 
-class ServiceCategory(models.Model):
-    name = models.CharField(max_length=100, unique=True, verbose_name=_("Nome"))
+class ServiceCategory(NameCleanMixin, models.Model):
+    name = models.CharField(max_length=100, unique=True, verbose_name=_('Nome'))
 
     class Meta:
         ordering = ['name']
@@ -179,7 +211,7 @@ class ServiceCategory(models.Model):
         verbose_name_plural = _('Categorias de Serviços')
 
     def save(self, *args, **kwargs):
-        self.name = ' '.join(word.capitalize() for word in self.name.strip().split())
+        self.clean_name()
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -199,75 +231,82 @@ class Service(models.Model):
         READY = 'ready', _('Pronto')
         DELIVERED = 'delivered', _('Entregue')
 
-    car = models.ForeignKey(Car, on_delete=models.CASCADE, related_name='services', verbose_name=_("Carro"))
-    category = models.ManyToManyField(ServiceCategory, verbose_name=_("Categorias"))
-    technician = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Técnico"))
+    car = models.ForeignKey(Car, on_delete=models.CASCADE, related_name='services', verbose_name=_('Carro'))
+    category = models.ManyToManyField(ServiceCategory, verbose_name=_('Categorias'))
+    technician = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_('Técnico'))
 
-    service_type = models.CharField(max_length=20, choices=ServiceType.choices, default=ServiceType.DIAGNOSTICO, verbose_name=_("Tipo de serviço"))
-    description = models.TextField(blank=True, verbose_name=_("Descrição"))
-    current_km = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Quilometragem atual"))
+    service_type = models.CharField(max_length=20, choices=ServiceType.choices, default=ServiceType.DIAGNOSTICO, verbose_name=_('Tipo de serviço'))
+    description = models.TextField(blank=True, verbose_name=_('Descrição'))
+    current_km = models.PositiveIntegerField(null=True, blank=True, verbose_name=_('Quilometragem atual'))
 
-    labor_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name=_("Custo de mão de obra"))
-    parts_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name=_("Custo de peças"))
-    total_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, editable=False, verbose_name=_("Custo total"))
-    is_budgeted = models.BooleanField(default=False, verbose_name=_("Orçamento confirmado"))
+    labor_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name=_('Custo de mão de obra'))
+    parts_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name=_('Custo de peças'))
+    total_cost = models.DecimalField(max_digits=10, decimal_places=2, editable=False, verbose_name=_('Custo total'), default=0)
+    is_budgeted = models.BooleanField(default=False, verbose_name=_('Orçamento confirmado'))
 
-    entry_date = models.DateTimeField(auto_now_add=True, verbose_name=_("Data de entrada"))
-    deadline_date = models.DateField(null=True, blank=True, verbose_name=_("Prazo"))
-    start_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Início"))
-    completion_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Conclusão"))
-    delivery_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Entrega"))
+    entry_date = models.DateTimeField(auto_now_add=True, verbose_name=_('Data de entrada'))
+    deadline_date = models.DateField(null=True, blank=True, verbose_name=_('Prazo'))
+    start_date = models.DateTimeField(null=True, blank=True, verbose_name=_('Início'))
+    completion_date = models.DateTimeField(null=True, blank=True, verbose_name=_('Conclusão'))
+    delivery_date = models.DateTimeField(null=True, blank=True, verbose_name=_('Entrega'))
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RECEIVED, verbose_name=_("Status"))
-    whatsapp_notified = models.BooleanField(default=False, verbose_name=_("Notificado por WhatsApp"))
-    email_notified = models.BooleanField(default=False, verbose_name=_("Notificado por e-mail"))
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RECEIVED, verbose_name=_('Status'))
+    whatsapp_notified = models.BooleanField(default=False, verbose_name=_('Notificado por WhatsApp'))
+    email_notified = models.BooleanField(default=False, verbose_name=_('Notificado por e-mail'))
 
-    receipt_image = models.ImageField(upload_to='receipts/', null=True, blank=True, verbose_name=_("Imagem da nota fiscal"))
+    receipt_image = models.ImageField(upload_to='receipts/', null=True, blank=True, verbose_name=_('Imagem da nota fiscal'))
     history = HistoricalRecords()
+
+    objects = ServiceManager()
 
     class Meta:
         ordering = ['-entry_date']
         verbose_name = _('Serviço')
         verbose_name_plural = _('Serviços')
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_status = self.status
+
     def clean(self):
+        errors = {}
         if self.deadline_date and self.deadline_date < date.today():
-            raise ValidationError({'deadline_date': _('Data de prazo deve ser futura')})
-        if self.status in [self.Status.IN_PROGRESS, self.Status.READY, self.Status.DELIVERED]:
+            errors['deadline_date'] = _('Data de prazo deve ser futura')
+        if self.status in {self.Status.IN_PROGRESS, self.Status.READY, self.Status.DELIVERED}:
             if not self.is_budgeted:
-                raise ValidationError({'is_budgeted': _('Orçamento deve ser confirmado')})
-            if None in [self.labor_cost, self.parts_cost]:
-                raise ValidationError(_('Informe todos os custos'))
+                errors['is_budgeted'] = _('Orçamento deve ser confirmado')
+            if self.labor_cost is None or self.parts_cost is None:
+                errors['__all__'] = _('Informe todos os custos')
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        self.update_total_cost()
-        self.update_status_dates()
-        super().save(*args, **kwargs)
-
-    def update_total_cost(self):
-        if None not in [self.labor_cost, self.parts_cost]:
-            self.total_cost = self.labor_cost + self.parts_cost
-
-    def update_status_dates(self):
-        if not self.pk:
-            return
-        now = timezone.now()
-        original = Service.objects.get(pk=self.pk)
-        if original.status != self.status:
-            if self.status == self.Status.IN_PROGRESS and not self.start_date:
-                self.start_date = now
-            elif self.status == self.Status.READY and not self.completion_date:
-                self.completion_date = now
-            elif self.status == self.Status.DELIVERED and not self.delivery_date:
-                self.delivery_date = now
+        from django.db.models import Sum
+        self.total_cost = (self.labor_cost or 0) + (self.parts_cost or 0)
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self._original_status != self.status:
+                now = timezone.now()
+                updates = {}
+                if self.status == self.Status.IN_PROGRESS and not self.start_date:
+                    updates['start_date'] = now
+                if self.status == self.Status.READY and not self.completion_date:
+                    updates['completion_date'] = now
+                if self.status == self.Status.DELIVERED and not self.delivery_date:
+                    updates['delivery_date'] = now
+                if updates:
+                    Service.objects.filter(pk=self.pk).update(**updates)
+                self._original_status = self.status
 
     @property
     def total_paid(self):
-        return sum(p.amount for p in self.payments.all()) if hasattr(self, 'payments') else 0
+        return self.payments.aggregate(sum=models.Sum('amount'))['sum'] or 0
+    total_paid.fget.short_description = _('Total pago')
 
     @property
     def pending_amount(self):
-        return max((self.total_cost or 0) - (self.total_paid or 0), 0)
+        return max((self.total_cost or 0) - self.total_paid, 0)
+    pending_amount.fget.short_description = _('Valor pendente')
 
     @property
     def service_duration(self):
@@ -283,10 +322,10 @@ class Service(models.Model):
         return f"{self.get_service_type_display()} - {self.car.license_plate}"
 
 class CarAccessToken(models.Model):
-    car = models.OneToOneField(Car, on_delete=models.CASCADE, related_name='access_token', verbose_name=_("Carro"))
-    token = models.CharField(max_length=10, unique=True, default=generate_token, verbose_name=_("Token"))
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Criado em"))
-    expires_at = models.DateTimeField(verbose_name=_("Expira em"))
+    car = models.OneToOneField(Car, on_delete=models.CASCADE, related_name='access_token', verbose_name=_('Carro'))
+    token = models.CharField(max_length=10, unique=True, default=generate_token, verbose_name=_('Token'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Criado em'))
+    expires_at = models.DateTimeField(verbose_name=_('Expira em'))
 
     class Meta:
         verbose_name = _('Token de Acesso')
@@ -302,14 +341,14 @@ class Payment(models.Model):
         CREDIT = 'credit', _('Crédito')
         PIX = 'pix', _('Pix')
 
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='payments', verbose_name=_("Serviço"))
-    amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Valor"))
-    method = models.CharField(max_length=10, choices=Method.choices, verbose_name=_("Forma de pagamento"))
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Data"))
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='payments', verbose_name=_('Serviço'))
+    amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_('Valor'))
+    method = models.CharField(max_length=10, choices=Method.choices, verbose_name=_('Forma de pagamento'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Data'))
 
     class Meta:
         verbose_name = _('Pagamento')
         verbose_name_plural = _('Pagamentos')
 
     def __str__(self):
-        return f"{self.get_method_display()} - R${self.amount}"
+        return f"{self.get_method_display()} - R${{self.amount}}"
